@@ -134,7 +134,7 @@ _CSS = f"""
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: {_TEXT_MUTED};
-    margin-top: 1.4rem;
+    margin-top: 0.4rem;
     margin-bottom: 0.15rem;
 }}
 .global-tile {{
@@ -197,7 +197,6 @@ _CSS = f"""
 .kpi-pct-num {{
     font-size: var(--text-xl);
     font-weight: 800;
-    color: #16a34a;
     line-height: 1;
 }}
 .kpi-pct-sub {{
@@ -255,10 +254,18 @@ _CSS = f"""
 def label(key: str) -> str:
     return STATUS_LABELS.get(key, key)
 
+def _pct_color(pct: float) -> str:
+    if pct >= 80:
+        return "#16a34a"
+    if pct >= 50:
+        return "#d97706"
+    return "#dc2626"
+
 def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int) -> str:
     completed_key = "CLOSE"
     pct = round(stats[completed_key] / total * 100, 1) if total > 0 else 0
 
+    pct_color = _pct_color(pct)
     segs = "".join(
         f'<div style="width:{round(stats[s["key"]]/total*100,2) if total else 0}%;'
         f'background:{s["color"]};height:100%;"></div>'
@@ -278,7 +285,7 @@ def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int) -> str:
         <div class="kpi-wo-title">{wo_title}</div>
         <div class="kpi-main">
             <div>
-                <div class="kpi-pct-num">{pct}%</div>
+                <div class="kpi-pct-num" style="color:{pct_color}">{pct}%</div>
                 <div class="kpi-pct-sub">completion rate</div>
             </div>
             <div>
@@ -291,11 +298,12 @@ def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int) -> str:
     </div>
     """
 
-def global_tile_html(value: str, tile_label: str, sub: str = "") -> str:
-    sub_html = f'<div class="global-tile-sub">{sub}</div>' if sub else ""
+def global_tile_html(value: str, tile_label: str, sub: str = "", value_color: str = "") -> str:
+    color_style = f"color:{value_color}" if value_color else ""
+    sub_html    = f'<div class="global-tile-sub">{sub}</div>' if sub else ""
     return f"""
     <div class="global-tile">
-        <div class="global-tile-value">{value}</div>
+        <div class="global-tile-value" style="{color_style}">{value}</div>
         <div class="global-tile-label">{tile_label}</div>
         {sub_html}
     </div>
@@ -585,15 +593,17 @@ for msg in issues:
 
 # ── Global KPI tiles (all WOs only) ──
 if not single_wo:
+    st.divider()
     st.markdown('<p class="section-label">Overall summary</p>', unsafe_allow_html=True)
 
     g1, g2, g3, g4 = st.columns(4)
-    g1.markdown(global_tile_html(f"{total_all:,}",        "Total Tasks",        "across all WOs"),                       unsafe_allow_html=True)
-    g2.markdown(global_tile_html(f"{rate_all}%",           "Overall Completion",  f"{closed_all:,} completed"),           unsafe_allow_html=True)
-    g3.markdown(global_tile_html(f"{wo_rates[best_wo]}%",  "Best WO",             best_wo.replace("WORK ORDER", "WO")),   unsafe_allow_html=True)
-    g4.markdown(global_tile_html(f"{wo_rates[worst_wo]}%", "Lowest WO",           worst_wo.replace("WORK ORDER", "WO")),  unsafe_allow_html=True)
+    g1.markdown(global_tile_html(f"{total_all:,}",        "Total Tasks",        "across all WOs"),                                                              unsafe_allow_html=True)
+    g2.markdown(global_tile_html(f"{rate_all}%",           "Overall Completion",  f"{closed_all:,} completed",           value_color=_pct_color(rate_all)),          unsafe_allow_html=True)
+    g3.markdown(global_tile_html(f"{wo_rates[best_wo]}%",  "Best WO",             best_wo.replace("WORK ORDER", "WO"),   value_color=_pct_color(wo_rates[best_wo])),  unsafe_allow_html=True)
+    g4.markdown(global_tile_html(f"{wo_rates[worst_wo]}%", "Lowest WO",           worst_wo.replace("WORK ORDER", "WO"),  value_color=_pct_color(wo_rates[worst_wo])), unsafe_allow_html=True)
 
 # ── Per-WO KPI cards ──
+st.divider()
 st.markdown('<p class="section-label">Summary by Work Order</p>', unsafe_allow_html=True)
 for col, wo_label in zip(st.columns(n_cols), active_labels):
     wo_df    = active_df[active_df["wo"] == wo_label]
