@@ -568,10 +568,10 @@ st.divider()
 st.markdown('<p class="section-label">Overall summary</p>', unsafe_allow_html=True)
 
 g1, g2, g3, g4 = st.columns(4)
-    g1.markdown(global_tile_html(f"{total_all:,}",        "Total Tasks",        "across all WOs"),                                                              unsafe_allow_html=True)
-    g2.markdown(global_tile_html(f"{rate_all}%",           "Overall Completion",  f"{closed_all:,} completed",           value_color=_pct_color(rate_all)),          unsafe_allow_html=True)
-    g3.markdown(global_tile_html(f"{wo_rates[best_wo]}%",  "Best WO",             best_wo.replace("WORK ORDER", "WO"),   value_color=_pct_color(wo_rates[best_wo])),  unsafe_allow_html=True)
-    g4.markdown(global_tile_html(f"{wo_rates[worst_wo]}%", "Lowest WO",           worst_wo.replace("WORK ORDER", "WO"),  value_color=_pct_color(wo_rates[worst_wo])), unsafe_allow_html=True)
+g1.markdown(global_tile_html(f"{total_all:,}",        "Total Tasks",        "across all WOs"),                                                              unsafe_allow_html=True)
+g2.markdown(global_tile_html(f"{rate_all}%",           "Overall Completion",  f"{closed_all:,} completed",           value_color=_pct_color(rate_all)),          unsafe_allow_html=True)
+g3.markdown(global_tile_html(f"{wo_rates[best_wo]}%",  "Best WO",             best_wo.replace("WORK ORDER", "WO"),   value_color=_pct_color(wo_rates[best_wo])),  unsafe_allow_html=True)
+g4.markdown(global_tile_html(f"{wo_rates[worst_wo]}%", "Lowest WO",           worst_wo.replace("WORK ORDER", "WO"),  value_color=_pct_color(wo_rates[worst_wo])), unsafe_allow_html=True)
 
 # ── Per-WO KPI cards ──
 st.divider()
