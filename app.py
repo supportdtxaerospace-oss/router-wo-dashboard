@@ -420,47 +420,6 @@ def make_stacked_100(df: pd.DataFrame, wo_labels: list[str]) -> go.Figure:
     return fig
 
 
-def make_gauge(pct: float, title: str) -> go.Figure:
-    if pct >= 80:
-        bar_color = "#16a34a"
-    elif pct >= 50:
-        bar_color = "#d97706"
-    else:
-        bar_color = "#dc2626"
-
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=pct,
-        number={"suffix": "%", "font": {"size": 42, "color": bar_color}, "valueformat": ".1f"},
-        gauge={
-            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#e5e7eb",
-                     "tickfont": {"size": 10, "color": "#9ca3af"}},
-            "bar": {"color": bar_color, "thickness": 0.28},
-            "bgcolor": "white",
-            "borderwidth": 0,
-            "steps": [
-                {"range": [0,  50], "color": "#fee2e2"},
-                {"range": [50, 80], "color": "#fef3c7"},
-                {"range": [80, 100], "color": "#dcfce7"},
-            ],
-            "threshold": {
-                "line": {"color": bar_color, "width": 3},
-                "thickness": 0.8,
-                "value": pct,
-            },
-        },
-    ))
-    fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center",
-                   font=dict(size=13, color=_TEXT_MAIN)),
-        margin=dict(t=50, b=10, l=30, r=30),
-        height=260,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-    )
-    return fig
-
-
 def make_bar(wo_df: pd.DataFrame, title: str) -> go.Figure:
     labels_disp = [label(s) for s in wo_df["status"]]
     colors      = [STATUS_COLORS[s] for s in wo_df["status"]]
@@ -623,25 +582,13 @@ for col, wo_label in zip(st.columns(n_cols), active_labels):
 
 st.divider()
 
-# ── Status distribution: 100% stacked (all WOs) ──
+# ── Comparison section: relative + absolute ──
 if not single_wo:
-    st.markdown('<p class="section-label">Status distribution by Work Order</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-label">Status distribution — relative</p>', unsafe_allow_html=True)
     st.plotly_chart(make_stacked_100(df, wo_labels), width="stretch", key="stacked_100")
     st.divider()
 
-# ── Completion rate gauges ──
-st.markdown('<p class="section-label">Completion rate</p>', unsafe_allow_html=True)
-for col, wo_label in zip(st.columns(n_cols), active_labels):
-    wo_df  = active_df[active_df["wo"] == wo_label]
-    total  = int(wo_df["qtd"].sum())
-    closed = int(wo_df.loc[wo_df["status"] == "CLOSE", "qtd"].sum())
-    pct    = round(closed / total * 100, 1) if total > 0 else 0
-    col.plotly_chart(make_gauge(pct, wo_label), width="stretch", key=f"gauge_{wo_label}")
-
-st.divider()
-
-# ── Quantity by status bars ──
-st.markdown('<p class="section-label">Quantity by status</p>', unsafe_allow_html=True)
+st.markdown('<p class="section-label">Status distribution — absolute count</p>', unsafe_allow_html=True)
 for col, wo_label in zip(st.columns(n_cols), active_labels):
     wo_df = active_df[active_df["wo"] == wo_label].sort_values("status")
     col.plotly_chart(make_bar(wo_df, wo_label), width="stretch", key=f"bar_{wo_label}")
