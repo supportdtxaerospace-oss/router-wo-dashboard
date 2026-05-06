@@ -134,6 +134,7 @@ _CSS = f"""
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: {_TEXT_MUTED};
+    margin-top: 1.4rem;
     margin-bottom: 0.15rem;
 }}
 .global-tile {{
@@ -577,15 +578,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Validation banner (always against full dataset) ──
+# ── Validation warnings (only shown when data has issues) ──
 issues = validate(df)
-if issues:
-    for msg in issues:
-        st.warning(msg, icon="⚠️")
-else:
-    st.success("Data validated — all statuses present and quantities consistent.", icon="✅")
-
-st.divider()
+for msg in issues:
+    st.warning(msg, icon="⚠️")
 
 # ── Global KPI tiles (all WOs only) ──
 if not single_wo:
@@ -596,8 +592,6 @@ if not single_wo:
     g2.markdown(global_tile_html(f"{rate_all}%",           "Overall Completion",  f"{closed_all:,} completed"),           unsafe_allow_html=True)
     g3.markdown(global_tile_html(f"{wo_rates[best_wo]}%",  "Best WO",             best_wo.replace("WORK ORDER", "WO")),   unsafe_allow_html=True)
     g4.markdown(global_tile_html(f"{wo_rates[worst_wo]}%", "Lowest WO",           worst_wo.replace("WORK ORDER", "WO")),  unsafe_allow_html=True)
-
-    st.divider()
 
 # ── Per-WO KPI cards ──
 st.markdown('<p class="section-label">Summary by Work Order</p>', unsafe_allow_html=True)
@@ -614,7 +608,6 @@ st.divider()
 if not single_wo:
     st.markdown('<p class="section-label">Status distribution — relative</p>', unsafe_allow_html=True)
     st.plotly_chart(make_stacked_100(df, wo_labels), width="stretch", key="stacked_100")
-    st.divider()
 
 st.markdown('<p class="section-label">Status distribution — absolute count</p>', unsafe_allow_html=True)
 for col, wo_label in zip(st.columns(n_cols), active_labels):
