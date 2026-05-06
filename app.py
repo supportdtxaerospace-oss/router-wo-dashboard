@@ -104,9 +104,6 @@ _CSS = f"""
     max-width: 90px;
     height: auto;
 }}
-[data-testid="stSidebarUserContent"] .stRadio > label {{
-    display: none;
-}}
 .dash-header {{
     display: flex;
     align-items: baseline;
@@ -464,40 +461,6 @@ def make_gauge(pct: float, title: str) -> go.Figure:
     return fig
 
 
-def make_donut(wo_df: pd.DataFrame, title: str) -> go.Figure:
-    labels_disp = [label(s) for s in wo_df["status"]]
-    colors      = [STATUS_COLORS[s] for s in wo_df["status"]]
-    total       = wo_df["qtd"].sum()
-
-    pcts  = [v / total * 100 if total > 0 else 0 for v in wo_df["qtd"]]
-    texts = [f"{p:.1f}%" if p >= 5 else "" for p in pcts]
-
-    fig = go.Figure(go.Pie(
-        labels=labels_disp,
-        values=wo_df["qtd"],
-        hole=0.56,
-        marker=dict(colors=colors, line=dict(color="white", width=2)),
-        text=texts,
-        textinfo="text",
-        textposition="inside",
-        hovertemplate="<b>%{label}</b><br>Count: %{value:,}<br>%{percent}<extra></extra>",
-        sort=False,
-    ))
-
-    fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center",
-                   font=dict(size=13, color=_TEXT_MAIN)),
-        annotations=[dict(text=f"<b>{total:,}</b>", x=0.5, y=0.5,
-                          font=dict(size=22, color=_TEXT_MAIN), showarrow=False)],
-        showlegend=False,
-        margin=dict(t=50, b=30, l=20, r=20),
-        height=320,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-    )
-    return fig
-
-
 def make_bar(wo_df: pd.DataFrame, title: str) -> go.Figure:
     labels_disp = [label(s) for s in wo_df["status"]]
     colors      = [STATUS_COLORS[s] for s in wo_df["status"]]
@@ -558,13 +521,6 @@ with st.sidebar:
     st.markdown('<p class="section-label">Filters</p>', unsafe_allow_html=True)
     wo_options  = ["All WOs"] + [wo["label"] for wo in WO_CONFIG]
     selected_wo = st.selectbox("Work Order", wo_options, label_visibility="collapsed")
-    view_mode   = st.radio(
-        "View mode",
-        ["Comparative", "Detailed"],
-        index=0,
-        horizontal=True,
-        label_visibility="hidden",
-    )
 
 # ── Guard: file missing ──
 if not DATA_FILE.exists():
@@ -609,9 +565,7 @@ wo_labels     = [wo["label"] for wo in WO_CONFIG]
 single_wo     = selected_wo != "All WOs"
 active_labels = [selected_wo] if single_wo else wo_labels
 active_df     = df[df["wo"].isin(active_labels)]
-# Comparative mode requires multiple WOs; fall back to Detailed for single WO
-effective_mode = "Detailed" if single_wo else view_mode
-n_cols         = len(active_labels)
+n_cols        = len(active_labels)
 
 # ── Header ──
 st.markdown(
@@ -669,30 +623,30 @@ for col, wo_label in zip(st.columns(n_cols), active_labels):
 
 st.divider()
 
-# ── Comparative view: 100% stacked (all WOs + Comparative mode) ──
-if effective_mode == "Comparative":
-    st.markdown('<p class="section-label">Comparative view — status distribution by WO</p>', unsafe_allow_html=True)
+# ── Status distribution: 100% stacked (all WOs) ──
+if not single_wo:
+    st.markdown('<p class="section-label">Status distribution by Work Order</p>', unsafe_allow_html=True)
     st.plotly_chart(make_stacked_100(df, wo_labels), width="stretch", key="stacked_100")
     st.divider()
 
-# ── Detailed view: gauges + bars ──
-if effective_mode == "Detailed":
-    st.markdown('<p class="section-label">Completion rate</p>', unsafe_allow_html=True)
-    for col, wo_label in zip(st.columns(n_cols), active_labels):
-        wo_df = active_df[active_df["wo"] == wo_label]
-        total = int(wo_df["qtd"].sum())
-        closed = int(wo_df.loc[wo_df["status"] == "CLOSE", "qtd"].sum())
-        pct = round(closed / total * 100, 1) if total > 0 else 0
-        col.plotly_chart(make_gauge(pct, wo_label), width="stretch", key=f"gauge_{wo_label}")
+# ── Completion rate gauges ──
+st.markdown('<p class="section-label">Completion rate</p>', unsafe_allow_html=True)
+for col, wo_label in zip(st.columns(n_cols), active_labels):
+    wo_df  = active_df[active_df["wo"] == wo_label]
+    total  = int(wo_df["qtd"].sum())
+    closed = int(wo_df.loc[wo_df["status"] == "CLOSE", "qtd"].sum())
+    pct    = round(closed / total * 100, 1) if total > 0 else 0
+    col.plotly_chart(make_gauge(pct, wo_label), width="stretch", key=f"gauge_{wo_label}")
 
-    st.divider()
+st.divider()
 
-    st.markdown('<p class="section-label">Quantity by status</p>', unsafe_allow_html=True)
-    for col, wo_label in zip(st.columns(n_cols), active_labels):
-        wo_df = active_df[active_df["wo"] == wo_label].sort_values("status")
-        col.plotly_chart(make_bar(wo_df, wo_label), width="stretch", key=f"bar_{wo_label}")
+# ── Quantity by status bars ──
+st.markdown('<p class="section-label">Quantity by status</p>', unsafe_allow_html=True)
+for col, wo_label in zip(st.columns(n_cols), active_labels):
+    wo_df = active_df[active_df["wo"] == wo_label].sort_values("status")
+    col.plotly_chart(make_bar(wo_df, wo_label), width="stretch", key=f"bar_{wo_label}")
 
-    st.divider()
+st.divider()
 
 # ── Audit table ──
 with st.expander("Audit — verify against Excel", expanded=False):
