@@ -20,7 +20,8 @@ from pathlib import Path
 from datetime import datetime
 
 # ── 2. Data config ────────────────────────────────────────────────────────────
-DATA_FILE  = Path(__file__).parent / "data" / "Router Graphic Report MK 0.xlsx"
+DATA_FILE    = Path(__file__).parent / "data" / "Router Graphic Report MK 0.xlsx"
+HISTORY_FILE = Path(__file__).parent / "data" / "history.csv"
 SHEET_NAME = "Contagem"
 STATUS_COL = 6   # column F (1-based)
 QTD_COL    = 8   # column H (1-based)
@@ -355,6 +356,29 @@ def validate(df: pd.DataFrame) -> list[str]:
     return issues
 
 
+def append_snapshot(df: pd.DataFrame) -> None:
+    today = datetime.now().date().isoformat()
+
+    if HISTORY_FILE.exists():
+        history = pd.read_csv(HISTORY_FILE, dtype={"date": str})
+        if today in history["date"].values:
+            return
+    else:
+        history = pd.DataFrame(columns=["date", "wo", "completed", "total", "rate"])
+
+    rows = []
+    for wo_label in [wo["label"] for wo in WO_CONFIG]:
+        wo_df     = df[df["wo"] == wo_label]
+        total     = int(wo_df["qtd"].sum())
+        completed = int(wo_df.loc[wo_df["status"] == "CLOSE", "qtd"].sum())
+        rate      = round(completed / total * 100, 1) if total > 0 else 0
+        rows.append({"date": today, "wo": wo_label, "completed": completed,
+                     "total": total, "rate": rate})
+
+    history = pd.concat([history, pd.DataFrame(rows)], ignore_index=True)
+    history.to_csv(HISTORY_FILE, index=False)
+
+
 # ── 7. Chart builders ─────────────────────────────────────────────────────────
 
 def make_stacked_100(df: pd.DataFrame, wo_labels: list[str]) -> go.Figure:
@@ -496,6 +520,7 @@ if not DATA_FILE.exists():
 try:
     with st.spinner("Loading data…"):
         df, loaded_at = load_data(DATA_FILE)
+        append_snapshot(df)
 except KeyError:
     st.error(
         f"Sheet `{SHEET_NAME}` not found in `{DATA_FILE.name}`. "
