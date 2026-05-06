@@ -121,6 +121,13 @@ _CSS = f"""
     font-size: var(--text-sm);
     color: {_TEXT_MUTED};
 }}
+.dash-insight {{
+    font-size: var(--text-base);
+    color: #374151;
+    margin: 0.25rem 0 0;
+    font-weight: 400;
+    line-height: 1.5;
+}}
 .section-label {{
     font-size: var(--text-xs);
     font-weight: 600;
@@ -526,12 +533,47 @@ active_labels = [selected_wo] if single_wo else wo_labels
 active_df     = df[df["wo"].isin(active_labels)]
 n_cols        = len(active_labels)
 
+# ── Pre-compute rates (needed for insight + global tiles) ──
+total_all  = int(df["qtd"].sum())
+closed_all = int(df.loc[df["status"] == "CLOSE", "qtd"].sum())
+rate_all   = round(closed_all / total_all * 100, 1) if total_all > 0 else 0
+
+wo_rates = {}
+for wl in wo_labels:
+    _wo = df[df["wo"] == wl]
+    _t  = int(_wo["qtd"].sum())
+    _c  = int(_wo.loc[_wo["status"] == "CLOSE", "qtd"].sum())
+    wo_rates[wl] = round(_c / _t * 100, 1) if _t > 0 else 0
+
+best_wo  = max(wo_rates, key=wo_rates.get)
+worst_wo = min(wo_rates, key=wo_rates.get)
+
+def _short(wo: str) -> str:
+    return wo.replace("WORK ORDER", "WO")
+
+if single_wo:
+    _wo_df  = active_df[active_df["wo"] == selected_wo]
+    _total  = int(_wo_df["qtd"].sum())
+    _closed = int(_wo_df.loc[_wo_df["status"] == "CLOSE", "qtd"].sum())
+    _pct    = round(_closed / _total * 100, 1) if _total > 0 else 0
+    _insight = (
+        f"{_short(selected_wo)} — <b>{_pct}%</b> completion rate "
+        f"across <b>{_total:,}</b> tasks."
+    )
+else:
+    _insight = (
+        f"Overall completion at <b>{rate_all}%</b> across <b>{total_all:,}</b> tasks — "
+        f"{_short(best_wo)} leads at <b>{wo_rates[best_wo]}%</b>, "
+        f"{_short(worst_wo)} lags at <b>{wo_rates[worst_wo]}%</b>."
+    )
+
 # ── Header ──
 st.markdown(
     f'<div class="dash-header">'
     f'<p class="dash-title">Router WO Dashboard</p>'
     f'<span class="dash-timestamp">Last updated: {loaded_at.strftime("%m/%d/%Y at %H:%M:%S")}</span>'
-    f'</div>',
+    f'</div>'
+    f'<p class="dash-insight">{_insight}</p>',
     unsafe_allow_html=True,
 )
 
@@ -548,20 +590,6 @@ st.divider()
 # ── Global KPI tiles (all WOs only) ──
 if not single_wo:
     st.markdown('<p class="section-label">Overall summary</p>', unsafe_allow_html=True)
-
-    total_all  = int(df["qtd"].sum())
-    closed_all = int(df.loc[df["status"] == "CLOSE", "qtd"].sum())
-    rate_all   = round(closed_all / total_all * 100, 1) if total_all > 0 else 0
-
-    wo_rates = {}
-    for wl in wo_labels:
-        wo_df = df[df["wo"] == wl]
-        t = int(wo_df["qtd"].sum())
-        c = int(wo_df.loc[wo_df["status"] == "CLOSE", "qtd"].sum())
-        wo_rates[wl] = round(c / t * 100, 1) if t > 0 else 0
-
-    best_wo  = max(wo_rates, key=wo_rates.get)
-    worst_wo = min(wo_rates, key=wo_rates.get)
 
     g1, g2, g3, g4 = st.columns(4)
     g1.markdown(global_tile_html(f"{total_all:,}",        "Total Tasks",        "across all WOs"),                       unsafe_allow_html=True)
