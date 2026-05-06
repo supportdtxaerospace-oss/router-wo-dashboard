@@ -355,17 +355,6 @@ def validate(df: pd.DataFrame) -> list[str]:
     return issues
 
 
-def build_audit_table(df: pd.DataFrame) -> pd.DataFrame:
-    pivot = df.pivot_table(
-        index="status", columns="wo", values="qtd", aggfunc="sum", observed=False
-    )
-    pivot = pivot.reindex(STATUS_ORDER)
-    pivot.index = [label(s) for s in pivot.index]
-    pivot.loc["**TOTAL**"] = pivot.sum()
-    pivot = pivot.fillna(0).astype(int)
-    pivot.index.name = "Status"
-    return pivot
-
 # ── 7. Chart builders ─────────────────────────────────────────────────────────
 
 def make_stacked_100(df: pd.DataFrame, wo_labels: list[str]) -> go.Figure:
@@ -493,9 +482,6 @@ with st.sidebar:
     if st.button("Reload data", width="stretch", type="primary"):
         st.cache_data.clear()
         st.rerun()
-    st.markdown('<p class="section-label">Filters</p>', unsafe_allow_html=True)
-    wo_options  = ["All WOs"] + [wo["label"] for wo in WO_CONFIG]
-    selected_wo = st.selectbox("Work Order", wo_options, label_visibility="collapsed")
 
 # ── Guard: file missing ──
 if not DATA_FILE.exists():
@@ -535,12 +521,8 @@ with st.sidebar:
     st.markdown('<p class="section-label">Last loaded</p>', unsafe_allow_html=True)
     st.caption(loaded_at.strftime("%m/%d/%Y at %H:%M:%S"))
 
-# ── Resolve filters ──
-wo_labels     = [wo["label"] for wo in WO_CONFIG]
-single_wo     = selected_wo != "All WOs"
-active_labels = [selected_wo] if single_wo else wo_labels
-active_df     = df[df["wo"].isin(active_labels)]
-n_cols        = len(active_labels)
+wo_labels = [wo["label"] for wo in WO_CONFIG]
+n_cols    = len(wo_labels)
 
 # ── Pre-compute rates (needed for insight + global tiles) ──
 total_all  = int(df["qtd"].sum())
@@ -560,21 +542,11 @@ worst_wo = min(wo_rates, key=wo_rates.get)
 def _short(wo: str) -> str:
     return wo.replace("WORK ORDER", "WO")
 
-if single_wo:
-    _wo_df  = active_df[active_df["wo"] == selected_wo]
-    _total  = int(_wo_df["qtd"].sum())
-    _closed = int(_wo_df.loc[_wo_df["status"] == "CLOSE", "qtd"].sum())
-    _pct    = round(_closed / _total * 100, 1) if _total > 0 else 0
-    _insight = (
-        f"{_short(selected_wo)} — <b>{_pct}%</b> completion rate "
-        f"across <b>{_total:,}</b> tasks."
-    )
-else:
-    _insight = (
-        f"Overall completion at <b>{rate_all}%</b> across <b>{total_all:,}</b> tasks — "
-        f"{_short(best_wo)} leads at <b>{wo_rates[best_wo]}%</b>, "
-        f"{_short(worst_wo)} lags at <b>{wo_rates[worst_wo]}%</b>."
-    )
+_insight = (
+    f"Overall completion at <b>{rate_all}%</b> across <b>{total_all:,}</b> tasks — "
+    f"{_short(best_wo)} leads at <b>{wo_rates[best_wo]}%</b>, "
+    f"{_short(worst_wo)} lags at <b>{wo_rates[worst_wo]}%</b>."
+)
 
 # ── Header ──
 st.markdown(
@@ -591,12 +563,11 @@ issues = validate(df)
 for msg in issues:
     st.warning(msg, icon="⚠️")
 
-# ── Global KPI tiles (all WOs only) ──
-if not single_wo:
-    st.divider()
-    st.markdown('<p class="section-label">Overall summary</p>', unsafe_allow_html=True)
+# ── Global KPI tiles ──
+st.divider()
+st.markdown('<p class="section-label">Overall summary</p>', unsafe_allow_html=True)
 
-    g1, g2, g3, g4 = st.columns(4)
+g1, g2, g3, g4 = st.columns(4)
     g1.markdown(global_tile_html(f"{total_all:,}",        "Total Tasks",        "across all WOs"),                                                              unsafe_allow_html=True)
     g2.markdown(global_tile_html(f"{rate_all}%",           "Overall Completion",  f"{closed_all:,} completed",           value_color=_pct_color(rate_all)),          unsafe_allow_html=True)
     g3.markdown(global_tile_html(f"{wo_rates[best_wo]}%",  "Best WO",             best_wo.replace("WORK ORDER", "WO"),   value_color=_pct_color(wo_rates[best_wo])),  unsafe_allow_html=True)
@@ -605,8 +576,8 @@ if not single_wo:
 # ── Per-WO KPI cards ──
 st.divider()
 st.markdown('<p class="section-label">Summary by Work Order</p>', unsafe_allow_html=True)
-for col, wo_label in zip(st.columns(n_cols), active_labels):
-    wo_df    = active_df[active_df["wo"] == wo_label]
+for col, wo_label in zip(st.columns(n_cols), wo_labels):
+    wo_df    = df[df["wo"] == wo_label]
     wo_title = wo_df["wo_title"].iloc[0]
     total    = int(wo_df["qtd"].sum())
     stats    = {s["key"]: int(wo_df.loc[wo_df["status"] == s["key"], "qtd"].sum()) for s in STATUSES}
@@ -615,25 +586,10 @@ for col, wo_label in zip(st.columns(n_cols), active_labels):
 st.divider()
 
 # ── Comparison section: relative + absolute ──
-if not single_wo:
-    st.markdown('<p class="section-label">Status distribution — relative</p>', unsafe_allow_html=True)
-    st.plotly_chart(make_stacked_100(df, wo_labels), width="stretch", key="stacked_100")
+st.markdown('<p class="section-label">Status distribution — relative</p>', unsafe_allow_html=True)
+st.plotly_chart(make_stacked_100(df, wo_labels), width="stretch", key="stacked_100")
 
 st.markdown('<p class="section-label">Status distribution — absolute count</p>', unsafe_allow_html=True)
-for col, wo_label in zip(st.columns(n_cols), active_labels):
-    wo_df = active_df[active_df["wo"] == wo_label].sort_values("status")
+for col, wo_label in zip(st.columns(n_cols), wo_labels):
+    wo_df = df[df["wo"] == wo_label].sort_values("status")
     col.plotly_chart(make_bar(wo_df, wo_label), width="stretch", key=f"bar_{wo_label}")
-
-st.divider()
-
-# ── Audit table ──
-with st.expander("Audit — verify against Excel", expanded=False):
-    audit = build_audit_table(active_df)
-    st.dataframe(
-        audit.style.highlight_max(axis=1, color="#d4edda").format("{:,}"),
-        use_container_width=True,
-    )
-    st.caption(
-        "Source: `Contagem` sheet — H30:H33 (WO #1) · H38:H41 (WO #2) · H46:H49 (WO #3). "
-        "Compare the **TOTAL** row against Excel totals for a quick sanity check."
-    )
