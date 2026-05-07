@@ -41,6 +41,9 @@ WO_CONFIG = [
 
 WO_COLORS = {wo["label"]: wo["color"] for wo in WO_CONFIG}
 
+CANCELED_ALERT_THRESHOLD = 5.0   # % — show alert if any WO exceeds this
+REMAINING_KEYS = {"NOT STARTED", "WIP"}  # statuses that count as remaining work
+
 # ── 3. Status definitions — single source of truth ───────────────────────────
 # To add or rename a status: edit ONLY this list. Everything else auto-updates.
 STATUSES = [
@@ -249,6 +252,12 @@ _CSS = f"""
     font-weight: 600;
     color: {_TEXT_MAIN};
 }}
+.kpi-remaining {{
+    font-size: var(--text-xs);
+    color: {_TEXT_MUTED};
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}}
 </style>
 """
 
@@ -269,6 +278,7 @@ def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int) -> str:
     pct = round(stats[completed_key] / total * 100, 1) if total > 0 else 0
 
     pct_color = _pct_color(pct)
+    remaining = sum(stats[k] for k in REMAINING_KEYS if k in stats)
     segs = "".join(
         f'<div style="width:{round(stats[s["key"]]/total*100,2) if total else 0}%;'
         f'background:{s["color"]};height:100%;"></div>'
@@ -297,6 +307,7 @@ def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int) -> str:
             </div>
         </div>
         <div class="progress-track">{segs}</div>
+        <div class="kpi-remaining">{remaining:,} task{"s" if remaining != 1 else ""} remaining</div>
         <div class="kpi-breakdown">{rows}</div>
     </div>
     """
@@ -607,9 +618,10 @@ wo_labels = [wo["label"] for wo in WO_CONFIG]
 n_cols    = len(wo_labels)
 
 # ── Pre-compute rates (needed for insight + global tiles) ──
-total_all  = int(df["qtd"].sum())
-closed_all = int(df.loc[df["status"] == "CLOSE", "qtd"].sum())
-rate_all   = round(closed_all / total_all * 100, 1) if total_all > 0 else 0
+total_all     = int(df["qtd"].sum())
+closed_all    = int(df.loc[df["status"] == "CLOSE", "qtd"].sum())
+rate_all      = round(closed_all / total_all * 100, 1) if total_all > 0 else 0
+remaining_all = int(df.loc[df["status"].isin(REMAINING_KEYS), "qtd"].sum())
 
 wo_rates = {}
 for wl in wo_labels:
@@ -649,11 +661,12 @@ for msg in issues:
 st.divider()
 st.markdown('<p class="section-label">Overall summary</p>', unsafe_allow_html=True)
 
-g1, g2, g3, g4 = st.columns(4)
-g1.markdown(global_tile_html(f"{total_all:,}",        "Total Tasks",        "across all WOs"),                                                              unsafe_allow_html=True)
-g2.markdown(global_tile_html(f"{rate_all}%",           "Overall Completion",  f"{closed_all:,} completed",           value_color=_pct_color(rate_all)),          unsafe_allow_html=True)
-g3.markdown(global_tile_html(f"{wo_rates[best_wo]}%",  "Best WO",             best_wo.replace("WORK ORDER", "WO"),   value_color=_pct_color(wo_rates[best_wo])),  unsafe_allow_html=True)
-g4.markdown(global_tile_html(f"{wo_rates[worst_wo]}%", "Lowest WO",           worst_wo.replace("WORK ORDER", "WO"),  value_color=_pct_color(wo_rates[worst_wo])), unsafe_allow_html=True)
+g1, g2, g3, g4, g5 = st.columns(5)
+g1.markdown(global_tile_html(f"{total_all:,}",         "Total Tasks",        "across all WOs"),                                                              unsafe_allow_html=True)
+g2.markdown(global_tile_html(f"{rate_all}%",            "Overall Completion",  f"{closed_all:,} completed",           value_color=_pct_color(rate_all)),          unsafe_allow_html=True)
+g3.markdown(global_tile_html(f"{remaining_all:,}",      "Remaining Tasks",     "not started + in progress"),                                                       unsafe_allow_html=True)
+g4.markdown(global_tile_html(f"{wo_rates[best_wo]}%",   "Best WO",             best_wo.replace("WORK ORDER", "WO"),   value_color=_pct_color(wo_rates[best_wo])),  unsafe_allow_html=True)
+g5.markdown(global_tile_html(f"{wo_rates[worst_wo]}%",  "Lowest WO",           worst_wo.replace("WORK ORDER", "WO"),  value_color=_pct_color(wo_rates[worst_wo])), unsafe_allow_html=True)
 
 # ── Per-WO KPI cards ──
 st.divider()
@@ -664,6 +677,19 @@ for col, wo_label in zip(st.columns(n_cols), wo_labels):
     total    = int(wo_df["qtd"].sum())
     stats    = {s["key"]: int(wo_df.loc[wo_df["status"] == s["key"], "qtd"].sum()) for s in STATUSES}
     col.markdown(make_kpi_card(wo_label, wo_title, stats, total), unsafe_allow_html=True)
+
+# ── Canceled tasks alert ──
+for wo_label in wo_labels:
+    wo_df        = df[df["wo"] == wo_label]
+    total        = int(wo_df["qtd"].sum())
+    canceled     = int(wo_df.loc[wo_df["status"] == "CANCELED", "qtd"].sum())
+    canceled_pct = round(canceled / total * 100, 1) if total > 0 else 0
+    if canceled_pct >= CANCELED_ALERT_THRESHOLD:
+        st.warning(
+            f"**{wo_label.replace('WORK ORDER', 'WO')}** has {canceled_pct}% canceled tasks "
+            f"({canceled:,} of {total:,}) — review may be needed.",
+            icon="⚠️",
+        )
 
 st.divider()
 
