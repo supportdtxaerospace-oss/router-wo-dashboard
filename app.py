@@ -13,6 +13,7 @@
 # =============================================================================
 
 # ── 1. Imports ────────────────────────────────────────────────────────────────
+import re
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -41,6 +42,7 @@ WO_CONFIG = [
 
 WO_COLORS = {wo["label"]: wo["color"] for wo in WO_CONFIG}
 
+PROJECT_NUMBER_CELL = (3, 2)      # cell that holds the numeric project ID (e.g. 308 → RL308)
 CANCELED_ALERT_THRESHOLD = 5.0   # % — show alert if any WO exceeds this
 REMAINING_KEYS = {"NOT STARTED", "WIP"}  # statuses that count as remaining work
 
@@ -109,6 +111,25 @@ _CSS = f"""
 [data-testid="stSidebarUserContent"] [data-testid="stImage"] img {{
     max-width: 90px;
     height: auto;
+}}
+.dash-project {{
+    font-size: var(--text-base);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: {_TEXT_MUTED};
+    margin-bottom: 1.8rem;
+}}
+.dash-project span {{
+    display: inline-block;
+    background: #f3f4f6;
+    border: 1px solid {_CARD_BORDER};
+    border-radius: 7px;
+    padding: 0.3rem 1rem;
+    color: {_TEXT_MAIN};
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
 }}
 .dash-header {{
     display: flex;
@@ -190,7 +211,17 @@ _CSS = f"""
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: {_TEXT_MUTED};
-    margin-bottom: 0.1rem;
+    margin-bottom: 0.25rem;
+}}
+.kpi-rl-badge {{
+    display: inline-block;
+    font-size: var(--text-base);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.18rem 0.6rem;
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }}
 .kpi-wo-title {{
     font-size: var(--text-sm);
@@ -291,6 +322,12 @@ _CSS = f"""
 
 # ── 5. Helpers ────────────────────────────────────────────────────────────────
 
+_RL_PATTERN = re.compile(r'RL[A-Za-z0-9]+', re.IGNORECASE)
+
+def _extract_rl(title: str) -> str | None:
+    m = _RL_PATTERN.search(title)
+    return m.group(0).upper() if m else None
+
 def label(key: str) -> str:
     return STATUS_LABELS.get(key, key)
 
@@ -345,12 +382,23 @@ def _compute_history_metrics(history_df: pd.DataFrame) -> dict | None:
     return metrics
 
 def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int,
+                  wo_color: str = "#6b7280",
                   delta: float | None = None) -> str:
     completed_key = "CLOSE"
     pct = round(stats[completed_key] / total * 100, 1) if total > 0 else 0
 
     pct_color = _pct_color(pct)
     remaining = sum(stats[k] for k in REMAINING_KEYS if k in stats)
+
+    rl_code = _extract_rl(wo_title)
+    if rl_code:
+        # Tinted background from the WO accent color (hex + "1a" ≈ 10% opacity)
+        identifier_html = (
+            f'<div class="kpi-rl-badge" style="background:{wo_color}1a;color:{wo_color}">'
+            f'{rl_code}</div>'
+        )
+    else:
+        identifier_html = f'<div class="kpi-wo-title">{wo_title}</div>'
 
     if delta is not None and delta != 0:
         d_color  = "#16a34a" if delta > 0 else "#dc2626"
@@ -374,7 +422,7 @@ def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int,
     return f"""
     <div class="kpi-card">
         <div class="kpi-wo-tag">{wo_label}</div>
-        <div class="kpi-wo-title">{wo_title}</div>
+        {identifier_html}
         <div class="kpi-main">
             <div>
                 <div class="kpi-pct-num" style="color:{pct_color}">{pct}%</div>
@@ -404,10 +452,13 @@ def global_tile_html(value: str, tile_label: str, sub: str = "", value_color: st
 # ── 6. Data layer ─────────────────────────────────────────────────────────────
 
 @st.cache_data(show_spinner=False)
-def load_data(file_path: Path) -> tuple[pd.DataFrame, datetime]:
+def load_data(file_path: Path) -> tuple[pd.DataFrame, datetime, str]:
     import openpyxl
     wb = openpyxl.load_workbook(file_path, data_only=True)
     ws = wb[SHEET_NAME]
+
+    raw_num = ws.cell(row=PROJECT_NUMBER_CELL[0], column=PROJECT_NUMBER_CELL[1]).value
+    project_name = f"RL{int(raw_num)}" if raw_num else ""
 
     records = []
     for wo in WO_CONFIG:
@@ -426,7 +477,7 @@ def load_data(file_path: Path) -> tuple[pd.DataFrame, datetime]:
 
     df = pd.DataFrame(records)
     df["status"] = pd.Categorical(df["status"], categories=STATUS_ORDER, ordered=True)
-    return df, datetime.now()
+    return df, datetime.now(), project_name
 
 
 def validate(df: pd.DataFrame) -> list[str]:
@@ -699,7 +750,7 @@ if not DATA_FILE.exists():
 # ── Load data with error handling & spinner ──
 try:
     with st.spinner("Loading data…"):
-        df, loaded_at = load_data(DATA_FILE)
+        df, loaded_at, project_name = load_data(DATA_FILE)
         append_snapshot(df)
         history_df = pd.read_csv(HISTORY_FILE, dtype={"date": str}) if HISTORY_FILE.exists() else None
         h_metrics  = _compute_history_metrics(history_df) if history_df is not None else None
@@ -765,7 +816,9 @@ _insight = (
 )
 
 # ── Header ──
+_project_html = f'<p class="dash-project">Project <span>{project_name}</span></p>' if project_name else ""
 st.markdown(
+    f'{_project_html}'
     f'<div class="dash-header">'
     f'<p class="dash-title">Router WO Dashboard</p>'
     f'<span class="dash-timestamp">Last updated: {loaded_at.strftime("%m/%d/%Y at %H:%M:%S")}</span>'
@@ -799,7 +852,8 @@ for col, wo_label in zip(st.columns(n_cols), wo_labels):
     total    = int(wo_df["qtd"].sum())
     stats    = {s["key"]: int(wo_df.loc[wo_df["status"] == s["key"], "qtd"].sum()) for s in STATUSES}
     delta    = h_metrics[wo_label]["delta"] if h_metrics and wo_label in h_metrics else None
-    col.markdown(make_kpi_card(wo_label, wo_title, stats, total, delta=delta), unsafe_allow_html=True)
+    wo_color = WO_COLORS.get(wo_label, "#6b7280")
+    col.markdown(make_kpi_card(wo_label, wo_title, stats, total, wo_color=wo_color, delta=delta), unsafe_allow_html=True)
 
 # ── Canceled tasks alert ──
 for wo_label in wo_labels:
