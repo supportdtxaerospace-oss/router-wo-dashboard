@@ -149,6 +149,13 @@ _CSS = f"""
     border-radius: 10px;
     padding: 0.85rem 1.1rem;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    min-height: 6rem;
+    box-sizing: border-box;
 }}
 .global-tile-value {{
     font-size: var(--text-xl);
@@ -263,6 +270,21 @@ _CSS = f"""
     font-weight: 700;
     align-self: flex-end;
     padding-bottom: 0.15rem;
+}}
+/* Equal-height columns so global-tile cards align uniformly */
+[data-testid="stHorizontalBlock"] > [data-testid="column"] {{
+    display: flex;
+    flex-direction: column;
+}}
+[data-testid="stHorizontalBlock"] > [data-testid="column"] > [data-testid="stVerticalBlock"] {{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}}
+[data-testid="stHorizontalBlock"] > [data-testid="column"] > [data-testid="stVerticalBlock"] > div {{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
 }}
 </style>
 """
@@ -764,7 +786,7 @@ st.markdown('<p class="section-label">Overall summary</p>', unsafe_allow_html=Tr
 g1, g2, g3, g4, g5 = st.columns(5)
 g1.markdown(global_tile_html(f"{total_all:,}",         "Total Tasks",        "across all WOs"),                                                              unsafe_allow_html=True)
 g2.markdown(global_tile_html(f"{rate_all}%",            "Overall Completion",  f"{closed_all:,} completed",           value_color=_pct_color(rate_all)),          unsafe_allow_html=True)
-g3.markdown(global_tile_html(f"{remaining_all:,}",      "Remaining Tasks",     "not started + in progress"),                                                       unsafe_allow_html=True)
+g3.markdown(global_tile_html(f"{remaining_all:,}",      "Remaining Tasks",     "not started + ongoing"),                                                       unsafe_allow_html=True)
 g4.markdown(global_tile_html(f"{wo_rates[best_wo]}%",   "Best WO",             best_wo.replace("WORK ORDER", "WO"),   value_color=_pct_color(wo_rates[best_wo])),  unsafe_allow_html=True)
 g5.markdown(global_tile_html(f"{wo_rates[worst_wo]}%",  "Lowest WO",           worst_wo.replace("WORK ORDER", "WO"),  value_color=_pct_color(wo_rates[worst_wo])), unsafe_allow_html=True)
 
