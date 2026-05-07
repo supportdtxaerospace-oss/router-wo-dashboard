@@ -34,10 +34,12 @@ LOGO_CANDIDATES = [
 ]
 
 WO_CONFIG = [
-    {"label": "WORK ORDER #1", "title_cell": (30, 2), "data_rows": (30, 33)},
-    {"label": "WORK ORDER #2", "title_cell": (38, 2), "data_rows": (38, 41)},
-    {"label": "WORK ORDER #3", "title_cell": (46, 2), "data_rows": (46, 49)},
+    {"label": "WORK ORDER #1", "title_cell": (30, 2), "data_rows": (30, 33), "color": "#6366f1"},
+    {"label": "WORK ORDER #2", "title_cell": (38, 2), "data_rows": (38, 41), "color": "#0ea5e9"},
+    {"label": "WORK ORDER #3", "title_cell": (46, 2), "data_rows": (46, 49), "color": "#f59e0b"},
 ]
+
+WO_COLORS = {wo["label"]: wo["color"] for wo in WO_CONFIG}
 
 # ── 3. Status definitions — single source of truth ───────────────────────────
 # To add or rename a status: edit ONLY this list. Everything else auto-updates.
@@ -490,6 +492,59 @@ def make_bar(wo_df: pd.DataFrame, title: str) -> go.Figure:
         height=380,
     )
     return fig
+
+
+def make_trend(history_df: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+
+    history_df = history_df.copy()
+    history_df["date"] = pd.to_datetime(history_df["date"])
+    history_df = history_df.sort_values("date")
+
+    for wo in WO_CONFIG:
+        wo_hist = history_df[history_df["wo"] == wo["label"]]
+        if wo_hist.empty:
+            continue
+
+        short = wo["label"].replace("WORK ORDER ", "WO ")
+        dates = wo_hist["date"].dt.strftime("%b %d")
+
+        fig.add_trace(go.Scatter(
+            x=wo_hist["date"],
+            y=wo_hist["rate"],
+            name=short,
+            mode="lines+markers",
+            line=dict(color=wo["color"], width=2.5),
+            marker=dict(color=wo["color"], size=7, line=dict(color="white", width=1.5)),
+            customdata=wo_hist[["completed", "total"]].values,
+            hovertemplate=(
+                f"<b>{short}</b><br>"
+                "%{x|%b %d, %Y}<br>"
+                "Completion: <b>%{y:.1f}%</b><br>"
+                "Tasks: %{customdata[0]:,} / %{customdata[1]:,}"
+                "<extra></extra>"
+            ),
+            text=dates,
+        ))
+
+    fig.update_layout(
+        title=dict(text="Completion trend over time", x=0.5, xanchor="center",
+                   font=dict(size=14, color=_TEXT_MAIN)),
+        xaxis=dict(title="", tickformat="%b %d", gridcolor="#e8e8e8",
+                   fixedrange=True),
+        yaxis=dict(title="Completion (%)", range=[0, 105], ticksuffix="%",
+                   dtick=20, gridcolor="#e8e8e8", fixedrange=True),
+        legend=dict(orientation="h", yanchor="bottom", y=1.04,
+                    xanchor="center", x=0.5, font=dict(size=11)),
+        plot_bgcolor="white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=80, b=40, l=55, r=20),
+        height=360,
+        hovermode="x unified",
+    )
+
+    return fig
+
 
 # ── 8. UI ─────────────────────────────────────────────────────────────────────
 
