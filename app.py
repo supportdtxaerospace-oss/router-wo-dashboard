@@ -17,7 +17,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date as _date, timedelta
 
 # ── 2. Data config ────────────────────────────────────────────────────────────
 DATA_FILE    = Path(__file__).parent / "data" / "Router Graphic Report MK 0.xlsx"
@@ -258,6 +258,12 @@ _CSS = f"""
     font-weight: 500;
     margin-bottom: 0.5rem;
 }}
+.kpi-delta {{
+    font-size: var(--text-sm);
+    font-weight: 700;
+    align-self: flex-end;
+    padding-bottom: 0.15rem;
+}}
 </style>
 """
 
@@ -273,12 +279,63 @@ def _pct_color(pct: float) -> str:
         return "#d97706"
     return "#dc2626"
 
-def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int) -> str:
+def _compute_history_metrics(history_df: pd.DataFrame) -> dict | None:
+    """Delta, velocity and projected completion per WO. Returns None if < 2 dates."""
+    dates = sorted(history_df["date"].unique())
+    if len(dates) < 2:
+        return None
+
+    latest_date, prev_date = dates[-1], dates[-2]
+    latest = history_df[history_df["date"] == latest_date]
+    prev   = history_df[history_df["date"] == prev_date]
+
+    days_gap = max((_date.fromisoformat(latest_date) - _date.fromisoformat(prev_date)).days, 1)
+
+    metrics: dict = {}
+    for wo in WO_CONFIG:
+        wl        = wo["label"]
+        curr_rate = float(latest.loc[latest["wo"] == wl, "rate"].values[0])
+        prev_rate = float(prev.loc[prev["wo"] == wl, "rate"].values[0])
+        delta     = round(curr_rate - prev_rate, 1)
+        vel_day   = (curr_rate - prev_rate) / days_gap
+        vel_week  = round(vel_day * 7, 1)
+
+        if vel_day > 0 and curr_rate < 100:
+            proj_dt  = _date.fromisoformat(latest_date) + timedelta(days=(100 - curr_rate) / vel_day)
+            proj_str = proj_dt.strftime("%b %d, %Y")
+        else:
+            proj_dt, proj_str = None, None
+
+        metrics[wl] = {
+            "delta":       delta,
+            "vel_week":    vel_week,
+            "curr_rate":   curr_rate,
+            "latest_date": latest_date,
+            "proj_dt":     proj_dt,
+            "proj_str":    proj_str,
+        }
+
+    # Overall delta for insight sentence
+    prev_rate_all   = round(prev["completed"].sum() / prev["total"].sum() * 100, 1)
+    curr_rate_all   = round(latest["completed"].sum() / latest["total"].sum() * 100, 1)
+    metrics["_overall"] = {"delta": round(curr_rate_all - prev_rate_all, 1)}
+
+    return metrics
+
+def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int,
+                  delta: float | None = None) -> str:
     completed_key = "CLOSE"
     pct = round(stats[completed_key] / total * 100, 1) if total > 0 else 0
 
     pct_color = _pct_color(pct)
     remaining = sum(stats[k] for k in REMAINING_KEYS if k in stats)
+
+    if delta is not None and delta != 0:
+        d_color  = "#16a34a" if delta > 0 else "#dc2626"
+        d_arrow  = "↑" if delta > 0 else "↓"
+        delta_html = f'<div class="kpi-delta" style="color:{d_color}">{d_arrow} {abs(delta)}%</div>'
+    else:
+        delta_html = ""
     segs = "".join(
         f'<div style="width:{round(stats[s["key"]]/total*100,2) if total else 0}%;'
         f'background:{s["color"]};height:100%;"></div>'
@@ -301,7 +358,8 @@ def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int) -> str:
                 <div class="kpi-pct-num" style="color:{pct_color}">{pct}%</div>
                 <div class="kpi-pct-sub">completion rate</div>
             </div>
-            <div>
+            {delta_html}
+            <div style="margin-left:auto">
                 <div class="kpi-total-num">{total:,}</div>
                 <div class="kpi-total-sub">total tasks</div>
             </div>
@@ -505,7 +563,7 @@ def make_bar(wo_df: pd.DataFrame, title: str) -> go.Figure:
     return fig
 
 
-def make_trend(history_df: pd.DataFrame) -> go.Figure:
+def make_trend(history_df: pd.DataFrame, metrics: dict | None = None) -> go.Figure:
     fig = go.Figure()
 
     history_df = history_df.copy()
@@ -513,17 +571,19 @@ def make_trend(history_df: pd.DataFrame) -> go.Figure:
     history_df = history_df.sort_values("date")
 
     for wo in WO_CONFIG:
-        wo_hist = history_df[history_df["wo"] == wo["label"]]
+        wl      = wo["label"]
+        wo_hist = history_df[history_df["wo"] == wl]
         if wo_hist.empty:
             continue
 
-        short = wo["label"].replace("WORK ORDER ", "WO ")
-        dates = wo_hist["date"].dt.strftime("%b %d")
+        short   = wl.replace("WORK ORDER ", "WO ")
+        wo_met  = (metrics or {}).get(wl)
+        vel_tag = f"  +{wo_met['vel_week']}%/wk" if wo_met and wo_met["vel_week"] > 0 else ""
 
         fig.add_trace(go.Scatter(
             x=wo_hist["date"],
             y=wo_hist["rate"],
-            name=short,
+            name=f"{short}{vel_tag}",
             mode="lines+markers",
             line=dict(color=wo["color"], width=2.5),
             marker=dict(color=wo["color"], size=7, line=dict(color="white", width=1.5)),
@@ -535,22 +595,55 @@ def make_trend(history_df: pd.DataFrame) -> go.Figure:
                 "Tasks: %{customdata[0]:,} / %{customdata[1]:,}"
                 "<extra></extra>"
             ),
-            text=dates,
         ))
+
+        # Projected completion line (Phase 3)
+        if wo_met and wo_met["proj_dt"]:
+            last_date = pd.Timestamp(wo_met["latest_date"])
+            proj_ts   = pd.Timestamp(wo_met["proj_dt"])
+            fig.add_trace(go.Scatter(
+                x=[last_date, proj_ts],
+                y=[wo_met["curr_rate"], 100],
+                name=f"{short} projected",
+                mode="lines",
+                line=dict(color=wo["color"], width=1.5, dash="dash"),
+                showlegend=False,
+                hovertemplate=(
+                    f"<b>{short} — projected</b><br>"
+                    "%{x|%b %d, %Y}: <b>%{y:.1f}%</b>"
+                    "<extra></extra>"
+                ),
+            ))
+            fig.add_annotation(
+                x=proj_ts, y=100,
+                text=f"Est. {wo_met['proj_str']}",
+                showarrow=True, arrowhead=2, arrowsize=0.8, arrowwidth=1,
+                arrowcolor=wo["color"],
+                font=dict(size=9, color=wo["color"]),
+                ax=0, ay=-22, yanchor="bottom",
+            )
+
+    # Target line at 80% (Phase 4)
+    fig.add_hline(
+        y=80, line_dash="dot", line_color="#16a34a", line_width=1.5,
+        annotation_text="80% target",
+        annotation_position="top right",
+        annotation_font=dict(size=9, color="#16a34a"),
+    )
 
     fig.update_layout(
         title=dict(text="Completion trend over time", x=0.5, xanchor="center",
                    font=dict(size=14, color=_TEXT_MAIN)),
         xaxis=dict(title="", tickformat="%b %d", gridcolor="#e8e8e8",
                    fixedrange=True),
-        yaxis=dict(title="Completion (%)", range=[0, 105], ticksuffix="%",
+        yaxis=dict(title="Completion (%)", range=[0, 108], ticksuffix="%",
                    dtick=20, gridcolor="#e8e8e8", fixedrange=True),
         legend=dict(orientation="h", yanchor="bottom", y=1.04,
                     xanchor="center", x=0.5, font=dict(size=11)),
         plot_bgcolor="white",
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(t=80, b=40, l=55, r=20),
-        height=360,
+        height=380,
         hovermode="x unified",
     )
 
@@ -589,6 +682,7 @@ try:
         df, loaded_at = load_data(DATA_FILE)
         append_snapshot(df)
         history_df = pd.read_csv(HISTORY_FILE, dtype={"date": str}) if HISTORY_FILE.exists() else None
+        h_metrics  = _compute_history_metrics(history_df) if history_df is not None else None
 except KeyError:
     st.error(
         f"Sheet `{SHEET_NAME}` not found in `{DATA_FILE.name}`. "
@@ -636,8 +730,16 @@ worst_wo = min(wo_rates, key=wo_rates.get)
 def _short(wo: str) -> str:
     return wo.replace("WORK ORDER", "WO")
 
+_overall_delta = h_metrics["_overall"]["delta"] if h_metrics else None
+if _overall_delta is not None and _overall_delta != 0:
+    _dc = "#16a34a" if _overall_delta > 0 else "#dc2626"
+    _da = "↑" if _overall_delta > 0 else "↓"
+    _delta_tag = f' <span style="color:{_dc};font-size:0.88em">({_da} {abs(_overall_delta)}% since last update)</span>'
+else:
+    _delta_tag = ""
+
 _insight = (
-    f"Overall completion at <b>{rate_all}%</b> across <b>{total_all:,}</b> tasks — "
+    f"Overall completion at <b>{rate_all}%</b>{_delta_tag} across <b>{total_all:,}</b> tasks — "
     f"{_short(best_wo)} leads at <b>{wo_rates[best_wo]}%</b>, "
     f"{_short(worst_wo)} lags at <b>{wo_rates[worst_wo]}%</b>."
 )
@@ -676,7 +778,8 @@ for col, wo_label in zip(st.columns(n_cols), wo_labels):
     wo_title = wo_df["wo_title"].iloc[0]
     total    = int(wo_df["qtd"].sum())
     stats    = {s["key"]: int(wo_df.loc[wo_df["status"] == s["key"], "qtd"].sum()) for s in STATUSES}
-    col.markdown(make_kpi_card(wo_label, wo_title, stats, total), unsafe_allow_html=True)
+    delta    = h_metrics[wo_label]["delta"] if h_metrics and wo_label in h_metrics else None
+    col.markdown(make_kpi_card(wo_label, wo_title, stats, total, delta=delta), unsafe_allow_html=True)
 
 # ── Canceled tasks alert ──
 for wo_label in wo_labels:
@@ -696,7 +799,7 @@ st.divider()
 # ── Completion trend (only when history has ≥ 2 distinct dates) ──
 if history_df is not None and history_df["date"].nunique() >= 2:
     st.markdown('<p class="section-label">Completion trend</p>', unsafe_allow_html=True)
-    st.plotly_chart(make_trend(history_df), width="stretch", key="trend")
+    st.plotly_chart(make_trend(history_df, metrics=h_metrics), width="stretch", key="trend")
     st.divider()
 
 # ── Comparison section: relative + absolute ──
