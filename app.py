@@ -577,6 +577,7 @@ try:
     with st.spinner("Loading data…"):
         df, loaded_at = load_data(DATA_FILE)
         append_snapshot(df)
+        history_df = pd.read_csv(HISTORY_FILE, dtype={"date": str}) if HISTORY_FILE.exists() else None
 except KeyError:
     st.error(
         f"Sheet `{SHEET_NAME}` not found in `{DATA_FILE.name}`. "
@@ -665,6 +666,12 @@ for col, wo_label in zip(st.columns(n_cols), wo_labels):
     col.markdown(make_kpi_card(wo_label, wo_title, stats, total), unsafe_allow_html=True)
 
 st.divider()
+
+# ── Completion trend (only when history has ≥ 2 distinct dates) ──
+if history_df is not None and history_df["date"].nunique() >= 2:
+    st.markdown('<p class="section-label">Completion trend</p>', unsafe_allow_html=True)
+    st.plotly_chart(make_trend(history_df), width="stretch", key="trend")
+    st.divider()
 
 # ── Comparison section: relative + absolute ──
 st.markdown('<p class="section-label">Status distribution — relative</p>', unsafe_allow_html=True)
