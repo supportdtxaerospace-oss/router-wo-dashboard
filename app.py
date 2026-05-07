@@ -375,7 +375,8 @@ def append_snapshot(df: pd.DataFrame) -> None:
         rows.append({"date": today, "wo": wo_label, "completed": completed,
                      "total": total, "rate": rate})
 
-    history = pd.concat([history, pd.DataFrame(rows)], ignore_index=True)
+    new_rows = pd.DataFrame(rows)
+    history  = pd.concat([history, new_rows], ignore_index=True) if not history.empty else new_rows
     history.to_csv(HISTORY_FILE, index=False)
 
 
