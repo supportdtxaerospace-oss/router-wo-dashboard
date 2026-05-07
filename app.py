@@ -357,9 +357,7 @@ def make_kpi_card(wo_label: str, wo_title: str, stats: dict, total: int,
             <div>
                 <div class="kpi-pct-num" style="color:{pct_color}">{pct}%</div>
                 <div class="kpi-pct-sub">completion rate</div>
-            </div>
-            {delta_html}
-            <div style="margin-left:auto">
+            </div>{delta_html}<div style="margin-left:auto">
                 <div class="kpi-total-num">{total:,}</div>
                 <div class="kpi-total-sub">total tasks</div>
             </div>
